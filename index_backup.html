@@ -1,0 +1,1213 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Borehole ML System | Smarter Water Management</title>
+
+    <meta
+        name="description"
+        content="A machine-learning system designed to help identify boreholes at risk of failure and prioritize maintenance in Malawi."
+    >
+
+    <style>
+        :root {
+            --blue: #075985;
+            --blue-dark: #082f49;
+            --blue-light: #e0f2fe;
+            --green: #15803d;
+            --green-light: #dcfce7;
+            --text: #172b3a;
+            --muted: #64748b;
+            --white: #ffffff;
+            --background: #f7fafc;
+            --border: #e2e8f0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+            scroll-padding-top: 90px;
+        }
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            color: var(--text);
+            background: var(--white);
+            line-height: 1.6;
+        }
+
+        a {
+            text-decoration: none;
+        }
+
+        .container {
+            width: min(1140px, 90%);
+            margin: auto;
+        }
+
+        /* NAVIGATION */
+
+        .navbar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.97);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .nav-inner {
+            min-height: 76px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            color: var(--blue-dark);
+            font-size: 18px;
+            font-weight: 800;
+        }
+
+        .brand-icon {
+            width: 43px;
+            height: 43px;
+            border-radius: 13px;
+            background: var(--blue);
+            color: white;
+            display: grid;
+            place-items: center;
+            font-size: 25px;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 27px;
+        }
+
+        .nav-links a {
+            color: #475569;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .nav-links a:hover {
+            color: var(--green);
+        }
+
+        .nav-links .login-link {
+            background: var(--blue);
+            color: white;
+            padding: 11px 19px;
+            border-radius: 8px;
+        }
+
+        .nav-links .login-link:hover {
+            background: var(--blue-dark);
+            color: white;
+        }
+
+        /* HERO SECTION */
+
+        .hero {
+            overflow: hidden;
+            position: relative;
+            background:
+                radial-gradient(
+                    circle at 85% 20%,
+                    rgba(34, 197, 94, 0.12),
+                    transparent 28%
+                ),
+                linear-gradient(135deg, #f0f9ff 0%, #ffffff 55%, #f0fdf4 100%);
+            padding: 85px 0 90px;
+        }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: 1.05fr 0.95fr;
+            align-items: center;
+            gap: 55px;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 13px;
+            background: var(--green-light);
+            color: #166534;
+            border-radius: 30px;
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            margin-bottom: 22px;
+        }
+
+        .hero h1 {
+            font-size: clamp(38px, 5vw, 59px);
+            line-height: 1.1;
+            letter-spacing: -1.8px;
+            color: var(--blue-dark);
+            margin-bottom: 22px;
+        }
+
+        .hero h1 span {
+            color: var(--green);
+        }
+
+        .hero-description {
+            max-width: 570px;
+            color: #526477;
+            font-size: 17px;
+            margin-bottom: 30px;
+        }
+
+        .hero-buttons {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 13px;
+            margin-bottom: 27px;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 9px;
+            min-height: 49px;
+            padding: 13px 21px;
+            border-radius: 8px;
+            font-weight: 800;
+            font-size: 14px;
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+        }
+
+        .button-primary {
+            color: white;
+            background: var(--blue);
+        }
+
+        .button-primary:hover {
+            background: var(--blue-dark);
+        }
+
+        .button-secondary {
+            color: var(--blue);
+            border: 1px solid #bfdbfe;
+            background: white;
+        }
+
+        .button-secondary:hover {
+            background: var(--blue-light);
+        }
+
+        .hero-note {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        /* DECORATIVE MONITORING PANEL */
+
+        .visual-area {
+            position: relative;
+            padding: 16px;
+        }
+
+        .dashboard-preview {
+            background: white;
+            border: 1px solid #dce8ef;
+            border-radius: 19px;
+            padding: 23px;
+            box-shadow: 0 24px 65px rgba(8, 47, 73, 0.13);
+            transform: rotate(1deg);
+        }
+
+        .preview-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 22px;
+        }
+
+        .preview-top h3 {
+            color: var(--blue-dark);
+            font-size: 17px;
+        }
+
+        .preview-top p {
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .status-pill {
+            display: inline-block;
+            border-radius: 20px;
+            background: var(--green-light);
+            color: #166534;
+            padding: 5px 9px;
+            font-size: 10px;
+            font-weight: 800;
+        }
+
+        .preview-stats {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .stat-card {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 15px;
+            background: #fbfdff;
+        }
+
+        .stat-icon {
+            font-size: 21px;
+            margin-bottom: 6px;
+        }
+
+        .stat-card p {
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .stat-card strong {
+            display: block;
+            color: var(--blue-dark);
+            font-size: 23px;
+            margin-top: 3px;
+        }
+
+        .preview-chart {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .preview-chart h4 {
+            font-size: 13px;
+            color: var(--blue-dark);
+            margin-bottom: 14px;
+        }
+
+        .risk-row {
+            display: grid;
+            grid-template-columns: 72px 1fr 48px;
+            align-items: center;
+            gap: 9px;
+            margin: 13px 0;
+            font-size: 11px;
+        }
+
+        .risk-track {
+            height: 8px;
+            border-radius: 20px;
+            background: #e2e8f0;
+            overflow: hidden;
+        }
+
+        .risk-fill {
+            height: 100%;
+            border-radius: 20px;
+        }
+
+        .risk-high {
+            width: 82%;
+            background: #ef4444;
+        }
+
+        .risk-medium {
+            width: 55%;
+            background: #f59e0b;
+        }
+
+        .risk-low {
+            width: 23%;
+            background: #22c55e;
+        }
+
+        .preview-footnote {
+            color: var(--muted);
+            font-size: 10px;
+            margin-top: 14px;
+        }
+
+        .floating-note {
+            position: absolute;
+            bottom: -5px;
+            left: -5px;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 13px 16px;
+            box-shadow: 0 12px 28px rgba(8, 47, 73, 0.10);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .floating-note span {
+            display: block;
+            color: var(--green);
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        /* TRUST STRIP */
+
+        .trust-strip {
+            border-bottom: 1px solid var(--border);
+            padding: 23px 0;
+            background: white;
+        }
+
+        .trust-inner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 28px;
+            text-align: center;
+            color: #526477;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .trust-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .trust-item span {
+            font-size: 19px;
+        }
+
+        /* GENERAL SECTIONS */
+
+        section.content-section {
+            padding: 82px 0;
+        }
+
+        .section-heading {
+            max-width: 720px;
+            margin: 0 auto 43px;
+            text-align: center;
+        }
+
+        .section-label {
+            color: var(--green);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .section-heading h2 {
+            color: var(--blue-dark);
+            font-size: clamp(29px, 4vw, 39px);
+            line-height: 1.2;
+            margin-bottom: 14px;
+        }
+
+        .section-heading p {
+            color: var(--muted);
+            font-size: 16px;
+        }
+
+        /* ABOUT */
+
+        .about-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 45px;
+            align-items: center;
+        }
+
+        .about-copy h2 {
+            color: var(--blue-dark);
+            font-size: 34px;
+            line-height: 1.2;
+            margin-bottom: 18px;
+        }
+
+        .about-copy p {
+            color: #526477;
+            margin-bottom: 15px;
+        }
+
+        .about-highlight {
+            background: #f0fdf4;
+            border-left: 4px solid var(--green);
+            border-radius: 0 9px 9px 0;
+            padding: 17px;
+            color: #166534;
+            font-size: 14px;
+            font-weight: 700;
+            margin-top: 20px;
+        }
+
+        .about-visual {
+            min-height: 300px;
+            padding: 30px;
+            border-radius: 18px;
+            background: linear-gradient(140deg, #075985, #0f766e);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .about-visual .big-icon {
+            font-size: 49px;
+            margin-bottom: 15px;
+        }
+
+        .about-visual h3 {
+            font-size: 25px;
+            margin-bottom: 12px;
+        }
+
+        .about-visual p {
+            color: #e0f2fe;
+            max-width: 400px;
+        }
+
+        /* FEATURES */
+
+        .features-section {
+            background: var(--background);
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 20px;
+        }
+
+        .feature-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 25px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 14px 35px rgba(8, 47, 73, 0.07);
+        }
+
+        .feature-icon {
+            width: 51px;
+            height: 51px;
+            display: grid;
+            place-items: center;
+            border-radius: 13px;
+            background: var(--blue-light);
+            font-size: 25px;
+            margin-bottom: 18px;
+        }
+
+        .feature-card:nth-child(2) .feature-icon,
+        .feature-card:nth-child(5) .feature-icon {
+            background: var(--green-light);
+        }
+
+        .feature-card h3 {
+            color: var(--blue-dark);
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        .feature-card p {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        /* HOW IT WORKS */
+
+        .steps-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 25px;
+        }
+
+        .step {
+            position: relative;
+            text-align: center;
+            padding: 15px;
+        }
+
+        .step-number {
+            display: grid;
+            place-items: center;
+            width: 55px;
+            height: 55px;
+            margin: 0 auto 17px;
+            border-radius: 50%;
+            background: var(--blue);
+            color: white;
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .step h3 {
+            color: var(--blue-dark);
+            margin-bottom: 9px;
+        }
+
+        .step p {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        /* ROLES */
+
+        .roles-section {
+            background: #f0f9ff;
+        }
+
+        .role-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 20px;
+        }
+
+        .role-card {
+            background: white;
+            border: 1px solid #dbeafe;
+            border-radius: 14px;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .role-icon {
+            font-size: 35px;
+            margin-bottom: 12px;
+        }
+
+        .role-card h3 {
+            color: var(--blue-dark);
+            margin-bottom: 10px;
+        }
+
+        .role-card p {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        /* CALL TO ACTION */
+
+        .cta-section {
+            padding: 65px 0;
+        }
+
+        .cta-panel {
+            padding: 45px 25px;
+            text-align: center;
+            border-radius: 18px;
+            color: white;
+            background: linear-gradient(120deg, #082f49, #075985);
+        }
+
+        .cta-panel h2 {
+            font-size: clamp(27px, 4vw, 37px);
+            margin-bottom: 13px;
+        }
+
+        .cta-panel p {
+            color: #dbeafe;
+            max-width: 650px;
+            margin: 0 auto 23px;
+        }
+
+        .cta-panel .button {
+            background: white;
+            color: var(--blue-dark);
+        }
+
+        .cta-panel .button:hover {
+            background: #dcfce7;
+        }
+
+        /* FOOTER */
+
+        footer {
+            background: #071f32;
+            color: white;
+            padding: 35px 0 20px;
+        }
+
+        .footer-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 30px;
+            flex-wrap: wrap;
+            padding-bottom: 25px;
+        }
+
+        .footer-brand {
+            font-size: 18px;
+            font-weight: 800;
+            margin-bottom: 8px;
+        }
+
+        .footer-description {
+            color: #cbd5e1;
+            max-width: 420px;
+            font-size: 13px;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .footer-links a {
+            color: #e2e8f0;
+            font-size: 13px;
+        }
+
+        .footer-links a:hover {
+            color: #86efac;
+        }
+
+        .footer-bottom {
+            border-top: 1px solid #294052;
+            padding-top: 17px;
+            text-align: center;
+            color: #cbd5e1;
+            font-size: 12px;
+        }
+
+        /* MOBILE RESPONSIVENESS */
+
+        @media (max-width: 850px) {
+            .nav-inner {
+                padding: 14px 0;
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .nav-links {
+                gap: 15px;
+                flex-wrap: wrap;
+            }
+
+            .hero {
+                padding: 60px 0;
+            }
+
+            .hero-grid,
+            .about-grid {
+                grid-template-columns: 1fr;
+                gap: 35px;
+            }
+
+            .visual-area {
+                max-width: 560px;
+                width: 100%;
+                margin: auto;
+            }
+
+            .feature-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 560px) {
+            .container {
+                width: 92%;
+            }
+
+            .nav-links {
+                gap: 12px;
+            }
+
+            .nav-links a {
+                font-size: 12px;
+            }
+
+            .nav-links .login-link {
+                padding: 8px 12px;
+            }
+
+            .hero h1 {
+                letter-spacing: -1px;
+            }
+
+            .hero-description {
+                font-size: 15px;
+            }
+
+            .feature-grid,
+            .steps-grid,
+            .role-grid {
+                grid-template-columns: 1fr;
+            }
+
+            section.content-section {
+                padding: 60px 0;
+            }
+
+            .dashboard-preview {
+                padding: 15px;
+            }
+
+            .risk-row {
+                grid-template-columns: 60px 1fr 40px;
+            }
+
+            .floating-note {
+                position: static;
+                margin-top: 12px;
+            }
+
+            .footer-top {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- NAVIGATION -->
+    <header class="navbar">
+        <div class="container nav-inner">
+
+            <a class="brand" href="{{ url_for('index') }}">
+                <span class="brand-icon">💧</span>
+                <span>Borehole ML System</span>
+            </a>
+
+            <nav class="nav-links" aria-label="Main navigation">
+                <a href="#home">Home</a>
+                <a href="#about">About</a>
+                <a href="#features">Features</a>
+                <a href="#how-it-works">How It Works</a>
+                <a href="{{ url_for('login') }}" class="login-link">
+                    Login →
+                </a>
+            </nav>
+
+        </div>
+    </header>
+
+    <main>
+
+        <!-- HERO -->
+        <section class="hero" id="home">
+            <div class="container hero-grid">
+
+                <div class="hero-copy">
+                    <div class="eyebrow">
+                        💧 Technology for reliable water access
+                    </div>
+
+                    <h1>
+                        Predict Borehole Failures.
+                        <span>Protect Water Access.</span>
+                    </h1>
+
+                    <p class="hero-description">
+                        A machine-learning-based system designed to help
+                        identify boreholes at risk of failure and support
+                        smarter maintenance planning for rural communities
+                        in Malawi.
+                    </p>
+
+                    <div class="hero-buttons">
+                        <a class="button button-primary"
+                           href="{{ url_for('login') }}">
+                            Access the System →
+                        </a>
+
+                        <a class="button button-secondary" href="#about">
+                            Discover the Project
+                        </a>
+                    </div>
+
+                    <p class="hero-note">
+                        Supporting data-informed borehole monitoring
+                        and maintenance prioritization.
+                    </p>
+                </div>
+
+                <!-- Illustrative dashboard preview -->
+                <div class="visual-area">
+                    <div class="dashboard-preview">
+
+                        <div class="preview-top">
+                            <div>
+                                <h3>Borehole Risk Overview</h3>
+                                <p>Illustrative dashboard preview</p>
+                            </div>
+                            <span class="status-pill">ML SYSTEM</span>
+                        </div>
+
+                        <div class="preview-stats">
+                            <div class="stat-card">
+                                <div class="stat-icon">💧</div>
+                                <p>Water points</p>
+                                <strong>Data</strong>
+                            </div>
+
+                            <div class="stat-card">
+                                <div class="stat-icon">📊</div>
+                                <p>Risk assessment</p>
+                                <strong>ML</strong>
+                            </div>
+                        </div>
+
+                        <div class="preview-chart">
+                            <h4>Example Risk Categories</h4>
+
+                            <div class="risk-row">
+                                <span>High risk</span>
+                                <div class="risk-track">
+                                    <div class="risk-fill risk-high"></div>
+                                </div>
+                                <strong>High</strong>
+                            </div>
+
+                            <div class="risk-row">
+                                <span>Medium</span>
+                                <div class="risk-track">
+                                    <div class="risk-fill risk-medium"></div>
+                                </div>
+                                <strong>Medium</strong>
+                            </div>
+
+                            <div class="risk-row">
+                                <span>Low risk</span>
+                                <div class="risk-track">
+                                    <div class="risk-fill risk-low"></div>
+                                </div>
+                                <strong>Low</strong>
+                            </div>
+
+                            <p class="preview-footnote">
+                                Illustrative categories only. These are not
+                                live predictions or actual project results.
+                            </p>
+                        </div>
+
+                    </div>
+
+                    <div class="floating-note">
+                        🛠️ Smarter maintenance planning
+                        <span>Use data to help prioritize inspections</span>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- TRUST STRIP -->
+        <section class="trust-strip" aria-label="Project goals">
+            <div class="container trust-inner">
+                <div class="trust-item">
+                    <span>📈</span> Data-driven decisions
+                </div>
+                <div class="trust-item">
+                    <span>🔍</span> Early risk identification
+                </div>
+                <div class="trust-item">
+                    <span>🛠️</span> Maintenance prioritization
+                </div>
+                <div class="trust-item">
+                    <span>🌍</span> Rural water support
+                </div>
+            </div>
+        </section>
+
+        <!-- ABOUT -->
+        <section class="content-section" id="about">
+            <div class="container about-grid">
+
+                <div class="about-copy">
+                    <div class="section-label">About the project</div>
+
+                    <h2>Making borehole maintenance more proactive</h2>
+
+                    <p>
+                        Rural communities depend on functioning water points
+                        for reliable access to clean water. When a borehole
+                        fails, identifying the problem and organizing
+                        maintenance can take time.
+                    </p>
+
+                    <p>
+                        This project uses borehole survey data and machine
+                        learning to estimate the risk of failure. The aim is
+                        to help responsible teams identify which water points
+                        may need attention first.
+                    </p>
+
+                    <p>
+                        The system also supports role-based access for
+                        Trainees, Experts, and District Officers.
+                    </p>
+
+                    <div class="about-highlight">
+                        Project goal: support better maintenance decisions
+                        through data, risk assessment, and coordinated work.
+                    </div>
+                </div>
+
+                <div class="about-visual">
+                    <div class="big-icon">🌍💧</div>
+                    <h3>Reliable Water Starts with Better Planning</h3>
+                    <p>
+                        Identify potential risks, support inspection planning,
+                        and help maintenance teams make informed decisions
+                        about rural water infrastructure.
+                    </p>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- FEATURES -->
+        <section class="content-section features-section" id="features">
+            <div class="container">
+
+                <div class="section-heading">
+                    <div class="section-label">System features</div>
+                    <h2>Tools to support better water-point management</h2>
+                    <p>
+                        A project designed to bring risk prediction,
+                        user management, and maintenance planning together.
+                    </p>
+                </div>
+
+                <div class="feature-grid">
+
+                    <article class="feature-card">
+                        <div class="feature-icon">🤖</div>
+                        <h3>Machine Learning</h3>
+                        <p>
+                            Use available borehole data to estimate the
+                            likelihood of a water point experiencing failure.
+                        </p>
+                    </article>
+
+                    <article class="feature-card">
+                        <div class="feature-icon">📊</div>
+                        <h3>Risk Assessment</h3>
+                        <p>
+                            Present estimated risk levels to help teams
+                            understand which boreholes may need attention.
+                        </p>
+                    </article>
+
+                    <article class="feature-card">
+                        <div class="feature-icon">🛠️</div>
+                        <h3>Maintenance Prioritization</h3>
+                        <p>
+                            Help district teams plan inspections and direct
+                            attention toward potentially vulnerable water points.
+                        </p>
+                    </article>
+
+                    <article class="feature-card">
+                        <div class="feature-icon">👥</div>
+                        <h3>Role-Based Access</h3>
+                        <p>
+                            Provide separate access for Trainees, Experts,
+                            and District Officers according to their roles.
+                        </p>
+                    </article>
+
+                    <article class="feature-card">
+                        <div class="feature-icon">🗂️</div>
+                        <h3>User Management</h3>
+                        <p>
+                            Allow authorized District Officers to create,
+                            view, update, and remove eligible user accounts.
+                        </p>
+                    </article>
+
+                    <article class="feature-card">
+                        <div class="feature-icon">📍</div>
+                        <h3>Water-Point Monitoring</h3>
+                        <p>
+                            Support organized access to borehole information
+                            for monitoring and future maintenance workflows.
+                        </p>
+                    </article>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- HOW IT WORKS -->
+        <section class="content-section" id="how-it-works">
+            <div class="container">
+
+                <div class="section-heading">
+                    <div class="section-label">How it works</div>
+                    <h2>From borehole data to informed action</h2>
+                    <p>
+                        The intended process connects water-point information
+                        with risk estimates and maintenance planning.
+                    </p>
+                </div>
+
+                <div class="steps-grid">
+
+                    <article class="step">
+                        <div class="step-number">1</div>
+                        <h3>Collect Data</h3>
+                        <p>
+                            Use available borehole survey and water-point
+                            information as input to the system.
+                        </p>
+                    </article>
+
+                    <article class="step">
+                        <div class="step-number">2</div>
+                        <h3>Estimate Failure Risk</h3>
+                        <p>
+                            Apply a trained machine-learning model to estimate
+                            the risk associated with each eligible record.
+                        </p>
+                    </article>
+
+                    <article class="step">
+                        <div class="step-number">3</div>
+                        <h3>Plan Maintenance</h3>
+                        <p>
+                            Use the risk estimates to help responsible teams
+                            prioritize inspections and maintenance activities.
+                        </p>
+                    </article>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- USER ROLES -->
+        <section class="content-section roles-section" id="roles">
+            <div class="container">
+
+                <div class="section-heading">
+                    <div class="section-label">Who uses the system?</div>
+                    <h2>One system. Three user roles.</h2>
+                    <p>
+                        Each role has a different responsibility within
+                        the borehole management workflow.
+                    </p>
+                </div>
+
+                <div class="role-grid">
+
+                    <article class="role-card">
+                        <div class="role-icon">🔧</div>
+                        <h3>Trainee</h3>
+                        <p>
+                            Supports assigned repair activities and
+                            equipment installation.
+                        </p>
+                    </article>
+
+                    <article class="role-card">
+                        <div class="role-icon">🧑‍🔬</div>
+                        <h3>Expert</h3>
+                        <p>
+                            Examines borehole information and supports
+                            technical assessment activities.
+                        </p>
+                    </article>
+
+                    <article class="role-card">
+                        <div class="role-icon">🏢</div>
+                        <h3>District Officer</h3>
+                        <p>
+                            Oversees system activities and manages eligible
+                            user accounts.
+                        </p>
+                    </article>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- CALL TO ACTION -->
+        <section class="cta-section">
+            <div class="container">
+                <div class="cta-panel">
+                    <h2>Ready to access the system?</h2>
+                    <p>
+                        Sign in to access the features available for your
+                        assigned role in the Borehole ML System.
+                    </p>
+
+                    <a class="button" href="{{ url_for('login') }}">
+                        Continue to Login →
+                    </a>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer id="contact">
+        <div class="container">
+
+            <div class="footer-top">
+                <div>
+                    <div class="footer-brand">
+                        💧 Borehole ML System
+                    </div>
+                    <p class="footer-description">
+                        A machine-learning project focused on borehole
+                        failure risk estimation and maintenance planning
+                        for rural water infrastructure in Malawi.
+                    </p>
+                </div>
+
+                <div class="footer-links">
+                    <a href="#home">Home</a>
+                    <a href="#about">About</a>
+                    <a href="#features">Features</a>
+                    <a href="{{ url_for('login') }}">Login</a>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                &copy; 2026 Borehole ML System. Academic project.
+            </div>
+
+        </div>
+    </footer>
+
+</body>
+</html>
