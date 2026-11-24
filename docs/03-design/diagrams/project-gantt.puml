@@ -1,0 +1,21 @@
+﻿@startgantt
+title Borehole ML Project - Gantt Chart
+
+Project starts 2026-11-24
+
+[Requirements and baseline] lasts 2 days
+[System design and diagrams] lasts 3 days
+[Data preparation] lasts 4 days
+[ML development] lasts 5 days
+[Application integration] lasts 4 days
+[Testing and validation] lasts 5 days
+[Documentation and release] lasts 4 days
+
+[System design and diagrams] starts at [Requirements and baseline]'s end
+[Data preparation] starts at [System design and diagrams]'s end
+[ML development] starts at [Data preparation]'s end
+[Application integration] starts at [ML development]'s end
+[Testing and validation] starts at [Application integration]'s end
+[Documentation and release] starts at [Testing and validation]'s end
+
+@endgantt

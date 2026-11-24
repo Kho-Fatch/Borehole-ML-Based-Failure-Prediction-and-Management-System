@@ -1,0 +1,29 @@
+﻿@startuml
+title Borehole ML Project - Risk Heatmap
+
+skinparam backgroundColor white
+
+rectangle "RISK HEATMAP\nLikelihood vs Impact" {
+
+  rectangle "LOW IMPACT" as L
+  rectangle "MEDIUM IMPACT" as M
+  rectangle "HIGH IMPACT" as H
+
+  rectangle "HIGH LIKELIHOOD" as HL
+  rectangle "MEDIUM LIKELIHOOD" as ML
+  rectangle "LOW LIKELIHOOD" as LL
+
+  rectangle "R1\nInsufficient labelled data" as R1 #FF6666
+  rectangle "R2\nModel validation failure" as R2 #FF6666
+  rectangle "R3\nDeadline pressure" as R3 #FFCC66
+  rectangle "R4\nData privacy breach" as R4 #FF6666
+  rectangle "R5\nSystem downtime" as R5 #FFCC66
+}
+
+note bottom
+Red: High priority
+Amber: Medium priority
+Actual likelihood and impact ratings must be reviewed against the risk register.
+end note
+
+@enduml

@@ -1,0 +1,40 @@
+﻿@startuml
+title Rural Water Point Functionality Prediction System - Use Case Diagram
+
+left to right direction
+
+actor "District Officer" as DO
+actor "Expert" as EX
+actor "Trainee" as TR
+
+rectangle "Borehole Management System" {
+  usecase "Login" as UC1
+  usecase "Manage Users" as UC2
+  usecase "Monitor Boreholes" as UC3
+  usecase "Train ML Model" as UC4
+  usecase "Review Risk Alerts" as UC5
+  usecase "Enter Borehole Data" as UC6
+  usecase "Calculate Failure Risk" as UC7
+  usecase "View Own Risk Calculations" as UC8
+  usecase "Record Repairs" as UC9
+  usecase "Record Equipment Installation" as UC10
+  usecase "Update Maintenance Progress" as UC11
+}
+
+DO --> UC1
+DO --> UC2
+DO --> UC3
+DO --> UC4
+DO --> UC5
+
+EX --> UC1
+EX --> UC6
+EX --> UC7
+EX --> UC8
+
+TR --> UC1
+TR --> UC9
+TR --> UC10
+TR --> UC11
+
+@enduml

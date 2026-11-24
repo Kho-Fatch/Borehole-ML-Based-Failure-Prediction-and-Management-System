@@ -1,0 +1,125 @@
+﻿@startuml
+title Borehole Management System - Database ERD
+
+hide circle
+skinparam linetype ortho
+
+entity "USERS" as users {
+  * id : INTEGER <<PK>>
+  --
+  full_name : TEXT
+  username : TEXT
+  password_hash : TEXT
+  role : TEXT
+  created_at : TIMESTAMP
+}
+
+entity "BOREHOLES" as boreholes {
+  * id : INTEGER <<PK>>
+  --
+  code : TEXT
+  village : TEXT
+  district : TEXT
+  village_population : INTEGER
+  people_using : INTEGER
+  months_unsupervised : INTEGER
+  functionality_status : TEXT
+  risk_score : REAL
+  prediction_status : TEXT
+  risk_updated_at : TIMESTAMP
+  created_at : TIMESTAMP
+  calculated_by : INTEGER <<FK>>
+  calculated_by_name : TEXT
+}
+
+entity "TASKS" as tasks {
+  * id : INTEGER <<PK>>
+  --
+  borehole_id : INTEGER <<FK>>
+  task_type : TEXT
+  description : TEXT
+  priority : TEXT
+  deadline : TEXT
+  status : TEXT
+  assigned_to : INTEGER <<FK>>
+  created_by : INTEGER <<FK>>
+  created_at : TIMESTAMP
+  updated_at : TIMESTAMP
+  closed_at : TIMESTAMP
+}
+
+entity "RISK_CALCULATIONS" as risks {
+  * id : INTEGER <<PK>>
+  --
+  borehole_id : INTEGER <<FK>>
+  expert_id : INTEGER <<FK>>
+  risk_score : REAL
+  model_version : TEXT
+  calculated_at : TIMESTAMP
+}
+
+entity "NOTIFICATIONS" as notifications {
+  * id : INTEGER <<PK>>
+  --
+  user_id : INTEGER <<FK>>
+  message : TEXT
+  link : TEXT
+  is_read : INTEGER
+  created_at : TIMESTAMP
+}
+
+entity "PASSWORD_RESET_TOKENS" as tokens {
+  * id : INTEGER <<PK>>
+  --
+  user_id : INTEGER <<FK>>
+  token_hash : TEXT
+  expires_at : TEXT
+  used_at : TEXT
+  created_at : TEXT
+}
+
+entity "TASK_REPORTS" as reports {
+  * id : INTEGER <<PK>>
+  --
+  task_id : INTEGER <<FK>>
+  author_id : INTEGER <<FK>>
+  report_type : TEXT
+  findings : TEXT
+  faults : TEXT
+  recommendation : TEXT
+  work_performed : TEXT
+  materials_used : TEXT
+  remaining_issues : TEXT
+  created_at : TIMESTAMP
+}
+
+entity "TASK_FEEDBACK" as feedback {
+  * id : INTEGER <<PK>>
+  --
+  task_id : INTEGER <<FK>>
+  sender_id : INTEGER <<FK>>
+  kind : TEXT
+  message : TEXT
+  created_at : TIMESTAMP
+}
+
+users ||--o{ boreholes : calculated_by
+users ||--o{ tasks : assigned_to
+users ||--o{ tasks : created_by
+boreholes ||--o{ tasks : has
+users ||--o{ risks : expert_id
+boreholes ||--o{ risks : has
+users ||--o{ notifications : receives
+users ||--o{ tokens : owns
+tasks ||--o{ reports : has
+users ||--o{ reports : authors
+tasks ||--o{ feedback : has
+users ||--o{ feedback : sends
+
+note bottom
+Based on the inspected SQLite database schema and foreign-key definitions.
+CASCADE deletion applies to risk calculations, notifications,
+password reset tokens, task reports and task feedback where defined.
+end note
+
+@enduml

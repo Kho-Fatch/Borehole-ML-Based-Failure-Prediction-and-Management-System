@@ -1,0 +1,20 @@
+﻿@startuml
+title Borehole Management System - HIPO Diagram
+
+skinparam componentStyle rectangle
+
+rectangle "Borehole Management System" as ROOT
+
+rectangle "1. User Management\nInput: User details\nProcess: Authenticate and assign roles\nOutput: Authorized users" as A
+rectangle "2. Borehole Management\nInput: Borehole information\nProcess: Register and update records\nOutput: Borehole records" as B
+rectangle "3. Risk Prediction\nInput: Borehole features and trained model\nProcess: Estimate failure probability\nOutput: Risk score and prediction status" as C
+rectangle "4. Maintenance Management\nInput: Repair and installation details\nProcess: Record and monitor work\nOutput: Maintenance reports" as D
+rectangle "5. Notifications\nInput: High-risk predictions\nProcess: Check risk threshold\nOutput: District Officer alerts" as E
+
+ROOT -down-> A
+ROOT -down-> B
+ROOT -down-> C
+ROOT -down-> D
+ROOT -down-> E
+
+@enduml

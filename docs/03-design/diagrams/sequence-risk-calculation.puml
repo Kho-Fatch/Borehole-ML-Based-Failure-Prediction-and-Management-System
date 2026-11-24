@@ -1,0 +1,29 @@
+﻿@startuml
+title Sequence Diagram - Expert Calculates Borehole Risk
+
+actor Expert
+participant "Web Application" as App
+participant "Risk Prediction Service" as ML
+database "SQLite Database" as DB
+participant "District Officer" as DO
+
+Expert -> App: Select borehole
+App -> DB: Retrieve borehole information
+DB --> App: Return borehole details
+Expert -> App: Click Calculate Risk
+App -> ML: Request risk prediction
+ML -> DB: Load required borehole features
+DB --> ML: Return feature values
+ML -> ML: Predict failure probability
+ML --> App: Return risk score
+App -> DB: Save prediction and Expert ID
+DB --> App: Confirm saved result
+
+alt Risk score >= 60%
+    App -> DB: Save high-risk notification
+    DB --> App: Notification saved
+    App -> DO: Make high-risk alert available
+end
+
+App --> Expert: Display risk result
+@enduml

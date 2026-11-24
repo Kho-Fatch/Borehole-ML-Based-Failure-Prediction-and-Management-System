@@ -1,0 +1,24 @@
+﻿@startuml
+title Borehole Risk Prediction - State Diagram
+
+[*] --> Registered
+
+Registered --> AwaitingInspection
+AwaitingInspection --> DataEntered : Expert enters information
+DataEntered --> ModelUnavailable : Model not trained
+ModelUnavailable --> AwaitingInspection : District Officer trains model
+
+DataEntered --> RiskCalculated : Model available
+RiskCalculated --> LowRisk : Risk below 60%
+RiskCalculated --> HighRisk : Risk at least 60%
+
+HighRisk --> OfficerNotified
+OfficerNotified --> MaintenancePending
+LowRisk --> Monitoring
+
+MaintenancePending --> UnderMaintenance : Trainee starts work
+UnderMaintenance --> MaintenanceCompleted : Work recorded
+MaintenanceCompleted --> AwaitingInspection : Reassessment required
+
+Monitoring --> AwaitingInspection : New inspection
+@enduml

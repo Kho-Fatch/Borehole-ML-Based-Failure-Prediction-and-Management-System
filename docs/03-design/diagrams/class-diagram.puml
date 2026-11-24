@@ -1,0 +1,67 @@
+﻿@startuml
+title Borehole Management System - Class Diagram
+
+class User {
+  +id: int
+  +full_name: string
+  +username: string
+  +password_hash: string
+  +role: string
+  +login()
+  +logout()
+}
+
+class Borehole {
+  +id: int
+  +code: string
+  +village: string
+  +district: string
+  +village_population: int
+  +people_using: int
+  +months_unsupervised: int
+  +functionality_status: string
+  +risk_score: float
+  +calculateRisk()
+}
+
+class RiskCalculation {
+  +id: int
+  +borehole_id: int
+  +expert_id: int
+  +risk_score: float
+  +model_version: string
+  +calculated_at: datetime
+}
+
+class MaintenanceTask {
+  +id: int
+  +borehole_id: int
+  +trainee_id: int
+  +description: string
+  +status: string
+  +created_at: datetime
+  +updateProgress()
+}
+
+class Notification {
+  +id: int
+  +recipient_id: int
+  +message: string
+  +created_at: datetime
+  +markAsRead()
+}
+
+class Model {
+  +model_version: string
+  +train()
+  +predict()
+}
+
+User "1" -- "0..*" RiskCalculation : performs
+Borehole "1" -- "0..*" RiskCalculation : receives
+User "1" -- "0..*" MaintenanceTask : assigned to
+Borehole "1" -- "0..*" MaintenanceTask : receives
+User "1" -- "0..*" Notification : receives
+Model ..> Borehole : predicts risk for
+
+@enduml

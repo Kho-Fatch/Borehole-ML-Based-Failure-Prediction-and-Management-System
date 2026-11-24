@@ -1,0 +1,37 @@
+﻿@startuml
+title DFD Level 2 - Borehole Risk Prediction
+
+left to right direction
+
+actor Expert
+actor "District Officer" as DO
+
+rectangle "3.1 Select Borehole" as P31
+rectangle "3.2 Validate Borehole Data" as P32
+rectangle "3.3 Retrieve Trained Model" as P33
+rectangle "3.4 Calculate Failure Probability" as P34
+rectangle "3.5 Save Prediction" as P35
+rectangle "3.6 Check High-Risk Threshold" as P36
+rectangle "3.7 Generate Alert" as P37
+
+database "D1 Borehole Records" as D1
+database "D2 Model and Prediction Records" as D2
+database "D3 Notifications" as D3
+
+Expert --> P31 : Select borehole
+P31 --> D1 : Retrieve borehole
+D1 --> P31 : Return borehole details
+P31 --> P32 : Selected information
+P32 --> P33 : Validated features
+P33 --> D2 : Retrieve trained model
+D2 --> P33 : Return model
+P33 --> P34 : Model and features
+P34 --> P35 : Predicted probability
+P35 --> D2 : Save prediction and Expert ID
+P35 --> P36 : Risk score
+P36 --> P37 : Risk at least 60 percent
+P37 --> D3 : Save notification
+P37 --> DO : High-risk notification
+P35 --> Expert : Display prediction
+
+@enduml

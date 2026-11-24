@@ -1,0 +1,33 @@
+﻿@startuml
+title Borehole Management System - V-Model
+
+left to right direction
+skinparam componentStyle rectangle
+
+rectangle "Requirements Analysis" as A
+rectangle "System Design" as B
+rectangle "Architecture Design" as C
+rectangle "Detailed Design" as D
+rectangle "Implementation" as E
+
+rectangle "Acceptance Testing" as F
+rectangle "System Testing" as G
+rectangle "Integration Testing" as H
+rectangle "Unit Testing" as I
+
+A -down-> B
+B -down-> C
+C -down-> D
+D -down-> E
+
+E -up-> I
+I -up-> H
+H -up-> G
+G -up-> F
+
+A .. F : Acceptance criteria
+B .. G : System requirements
+C .. H : Component interfaces
+D .. I : Module specifications
+
+@enduml

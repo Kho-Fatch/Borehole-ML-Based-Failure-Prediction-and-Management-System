@@ -1,0 +1,26 @@
+﻿@startuml
+title Sequence Diagram - Trainee Records Maintenance
+
+actor Trainee
+participant "Web Application" as App
+database "SQLite Database" as DB
+actor "District Officer" as DO
+
+Trainee -> App: Open maintenance module
+App -> DB: Retrieve assigned tasks
+DB --> App: Return task information
+App --> Trainee: Display available tasks
+Trainee -> App: Select borehole and submit repair details
+App -> App: Validate submitted information
+
+alt Information is valid
+    App -> DB: Save maintenance record
+    DB --> App: Confirm successful save
+    App -> DB: Update task progress
+    DB --> App: Confirm progress update
+    App --> Trainee: Display success message
+    App -> DO: Make progress available for monitoring
+else Information is invalid
+    App --> Trainee: Display validation error
+end
+@enduml

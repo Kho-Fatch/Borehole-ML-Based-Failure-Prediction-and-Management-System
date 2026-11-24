@@ -1,0 +1,43 @@
+﻿# Secrets and environment variables
+.secret_key
+.env
+.env.*
+!.env.example
+
+# Private databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Python temporary files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Generated machine-learning models
+*.joblib
+*.pkl
+*.pickle
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# User uploads and backups
+uploads/
+backups/
+
+# Editor and operating-system files
+.vscode/
+.DS_Store
+Thumbs.db

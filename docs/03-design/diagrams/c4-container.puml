@@ -1,0 +1,25 @@
+﻿@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title Borehole Management System - C4 Container Diagram
+
+Person(officer, "District Officer", "Monitors boreholes, users and risk alerts")
+Person(expert, "Expert", "Enters borehole data and calculates risk")
+Person(trainee, "Trainee", "Records repairs and equipment installations")
+
+System_Boundary(system, "Borehole Management System") {
+    Container(web, "Web Application", "Flask, HTML, CSS, JavaScript", "Provides role-based dashboards and management functions")
+    ContainerDb(database, "Application Database", "SQLite", "Stores users, boreholes, tasks, reports and notifications")
+    Container(ml, "Prediction Component", "Python, Scikit-learn", "Calculates borehole failure risk using the trained model")
+    Container(model, "Trained Model File", "Joblib", "Stores the trained Random Forest model")
+}
+
+Rel(officer, web, "Uses")
+Rel(expert, web, "Uses")
+Rel(trainee, web, "Uses")
+Rel(web, database, "Reads and writes")
+Rel(web, ml, "Requests risk prediction")
+Rel(ml, database, "Reads borehole features and saves results")
+Rel(ml, model, "Loads model")
+
+@enduml

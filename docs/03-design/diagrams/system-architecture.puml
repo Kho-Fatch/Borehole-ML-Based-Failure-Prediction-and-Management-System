@@ -1,0 +1,46 @@
+﻿@startuml
+title Borehole Management System - Architecture Diagram
+
+skinparam componentStyle rectangle
+
+actor "District Officer" as DO
+actor "Expert" as EX
+actor "Trainee" as TR
+
+rectangle "Presentation Layer" {
+  component "Web Interface\nHTML / CSS / JavaScript" as UI
+}
+
+rectangle "Application Layer" {
+  component "Flask Application" as APP
+  component "Authentication and\nRole Management" as AUTH
+  component "Borehole Management" as BH
+  component "Maintenance Management" as MAINT
+  component "Risk Prediction Service" as ML
+  component "Notification Service" as NOTIFY
+}
+
+rectangle "Data and ML Layer" {
+  database "SQLite Database" as DB
+  component "Random Forest Model\n(joblib)" as MODEL
+}
+
+DO --> UI
+EX --> UI
+TR --> UI
+
+UI --> APP
+APP --> AUTH
+APP --> BH
+APP --> MAINT
+APP --> ML
+APP --> NOTIFY
+
+AUTH --> DB
+BH --> DB
+MAINT --> DB
+ML --> DB
+ML --> MODEL
+NOTIFY --> DB
+
+@enduml

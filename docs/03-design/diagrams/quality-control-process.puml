@@ -1,0 +1,24 @@
+﻿@startuml
+title Borehole ML Project - Quality Control Process
+
+start
+
+:Start quality monitoring;
+:Run automated test suite;
+:Record test failures;
+:Calculate failure rate;
+:Compare against quality threshold;
+
+if (Within acceptable limits?) then (Yes)
+  :Continue monitoring;
+else (No)
+  :Investigate abnormal results;
+  :Identify root cause;
+  :Fix defects;
+  :Run tests again;
+endif
+
+:Record results in QA log;
+stop
+
+@enduml

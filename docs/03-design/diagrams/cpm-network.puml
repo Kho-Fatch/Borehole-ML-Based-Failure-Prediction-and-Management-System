@@ -1,0 +1,24 @@
+﻿@startuml
+title Borehole ML Project - CPM Network
+
+left to right direction
+
+rectangle "A\nRequirements\n2 days" as A
+rectangle "B\nSystem Design\n3 days" as B
+rectangle "C\nData Preparation\n4 days" as C
+rectangle "D\nML Development\n5 days" as D
+rectangle "E\nApplication Integration\n4 days" as E
+rectangle "F\nTesting and Validation\n5 days" as F
+rectangle "G\nDocumentation\n4 days" as G
+rectangle "H\nFinal Release\n2 days" as H
+
+A --> B
+B --> C
+C --> D
+D --> E
+E --> F
+F --> H
+B --> G
+G --> H
+
+@enduml

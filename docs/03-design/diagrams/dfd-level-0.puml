@@ -1,0 +1,24 @@
+﻿@startuml
+title DFD Level 0 - Borehole Management System
+
+left to right direction
+
+actor "District Officer" as DO
+actor "Expert" as EX
+actor "Trainee" as TR
+
+rectangle "0. Borehole Management System" as SYS
+database "Borehole Database" as DB
+
+DO --> SYS : User management, monitoring requests
+SYS --> DO : Reports, risk alerts, progress
+
+EX --> SYS : Borehole inspection information
+SYS --> EX : Predicted risk results
+
+TR --> SYS : Repair and installation records
+SYS --> TR : Assigned work and confirmation
+
+SYS <--> DB : User, borehole, prediction and maintenance records
+
+@enduml

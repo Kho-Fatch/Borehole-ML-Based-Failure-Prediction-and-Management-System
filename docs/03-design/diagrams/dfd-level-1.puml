@@ -1,0 +1,33 @@
+﻿@startuml
+title DFD Level 1 - Borehole Management System
+
+left to right direction
+
+actor "District Officer" as DO
+actor "Expert" as EX
+actor "Trainee" as TR
+
+rectangle "1.0 User Authentication and Management" as P1
+rectangle "2.0 Borehole Data Management" as P2
+rectangle "3.0 Failure Risk Prediction" as P3
+rectangle "4.0 Maintenance Management" as P4
+rectangle "5.0 Notification and Reporting" as P5
+
+database "D1 User Records" as D1
+database "D2 Borehole Records" as D2
+database "D3 Risk and Maintenance Records" as D3
+
+DO --> P1 : User account requests
+P1 <--> D1 : User information
+EX --> P2 : Inspection information
+P2 <--> D2 : Borehole information
+P2 --> P3 : Validated borehole features
+P3 <--> D3 : Prediction results
+P3 --> P5 : High-risk result
+TR --> P4 : Repair and installation details
+P4 <--> D3 : Maintenance records
+DO --> P5 : Monitoring request
+P5 --> DO : Alerts and progress reports
+P5 --> D3 : Notification records
+
+@enduml
