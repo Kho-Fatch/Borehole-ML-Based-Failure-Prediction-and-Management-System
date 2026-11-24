@@ -1066,6 +1066,15 @@ def dashboard():
             awaiting=awaiting, overdue=overdue, risky=risky,
         )
 
+    # Experts get the risk calculator directly on their dashboard.
+    expert_boreholes = []
+    ml_ready = model_is_available()
+    if session["role"] == "Expert":
+        expert_boreholes = db.execute(
+            "SELECT id, code, village, district, risk_score, prediction_status, "
+            "risk_updated_at, calculated_by_name FROM boreholes ORDER BY code"
+        ).fetchall()
+
     stats = task_stats(db, uid)
     active = db.execute(
         TASK_SELECT
@@ -1108,12 +1117,41 @@ def dashboard():
     </div>
     {% endif %}
 
+    {% if session.get('role') == 'Expert' %}
+    <div class="card">
+        <div class="page-head"><h2>Borehole Risk Calculation</h2>
+            <a class="button small" href="{{ url_for('boreholes') }}">Add / View Boreholes</a></div>
+        <p class="muted">Choose a borehole below and click Calculate Risk. The trained model calculates the score and records your name and the calculation date.</p>
+        {% if not ml_ready %}
+            <p class="notice">The trained model file is not available. Please ask the District Officer to check the model training status.</p>
+        {% elif not expert_boreholes %}
+            <p class="muted">No boreholes have been registered yet. Open Add / View Boreholes to register one first.</p>
+        {% endif %}
+        <div class="table-wrap"><table>
+            <thead><tr><th>Borehole</th><th>Village</th><th>District</th><th>Current risk</th><th>Last calculated</th><th>Calculated by</th><th>Action</th></tr></thead>
+            <tbody>
+            {% for b in expert_boreholes %}
+                <tr>
+                    <td><strong>{{ b['code'] }}</strong></td><td>{{ b['village'] }}</td><td>{{ b['district'] }}</td>
+                    <td>{% if b['prediction_status'] == 'ML prediction' %}{{ b['risk_score']|risk_badge }}{% else %}<span class="muted">Not calculated</span>{% endif %}</td>
+                    <td>{{ b['risk_updated_at']|fmt_dt if b['risk_updated_at'] else 'Never' }}</td>
+                    <td>{{ b['calculated_by_name'] or '—' }}</td>
+                    <td>{% if ml_ready %}<form method="POST" action="{{ url_for('update_risk', borehole_id=b['id']) }}">{{ csrf() }}<input type="hidden" name="return_to" value="dashboard"><button type="submit">Calculate Risk</button></form>{% else %}<button type="button" disabled>Model unavailable</button>{% endif %}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="7" class="muted">No boreholes registered yet.</td></tr>
+            {% endfor %}
+            </tbody></table></div>
+    </div>
+    {% endif %}
+
     <div class="card"><h2>My active tasks</h2>
         {{ task_table(active, False) }}</div>
     """
     return render_page(
         "Dashboard", content, s=stats, active=active, unread=unread,
         intro=intro, done_label=done_label,
+        expert_boreholes=expert_boreholes, ml_ready=ml_ready,
     )
 
 
@@ -1268,6 +1306,9 @@ def update_risk(borehole_id):
     except (RuntimeError, PermissionError, ValueError) as exc:
         db.rollback()
         flash(str(exc), "error")
+    destination = request.form.get("return_to", "")
+    if destination == "dashboard":
+        return redirect(url_for("dashboard"))
     return redirect(url_for("boreholes"))
 
 
