@@ -3,14 +3,22 @@ Borehole ML System
 ------------------
 Role-based borehole maintenance management:
   * District Officer - assigns work, reviews reports, manages users, monitors risk
-  * Expert           - carries out inspections and recommends repairs
+  * Expert           - enters borehole data, carries out inspections, calculates risk
   * Trainee          - carries out repairs and installations
+
+Risk score (0-100%) is calculated from:
+  * how many people use the borehole, and
+  * how many months it has gone without an inspection.
+The score is worked out automatically whenever an Expert enters or updates borehole data or
+submits an inspection report, and it keeps growing as time passes without an inspection.
+If the District Officer has trained the ML model, the model's estimate is used instead.
 
 Folder layout:
     app.py
     templates/index.html      <- your landing page (unchanged)
 """
 
+import hashlib
 import os
 import re
 import secrets
@@ -56,7 +64,7 @@ except ImportError:
 # --------------------------------------------------
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, "borehole_users.db")
+DATABASE = os.environ.get("BOREHOLE_DB") or os.path.join(BASE_DIR, "borehole_users.db")
 MODEL_PATH = os.path.join(BASE_DIR, "borehole_failure_model.joblib")
 
 
@@ -115,6 +123,18 @@ MEDIUM_RISK = 40.0
 MIN_PASSWORD_LENGTH = 8
 TEXT_LIMIT = 2000
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,30}$")
+
+# --- Risk calculation settings -------------------------------------------------
+# A borehole is calculated when its status is one of these.
+CALCULATED = ("ML prediction", "Formula")
+# Users per borehole that a borehole can serve well (common handpump guideline).
+USERS_PER_BOREHOLE_LIMIT = 250
+# Months without inspection that count as the worst case.
+INSPECTION_GAP_LIMIT = 12
+CONDITIONS = ("Functional", "Partially functional", "Non-functional", "Unknown")
+# A borehole already known to be broken can never have a low risk score.
+CONDITION_FLOORS = {"Non-functional": 90.0, "Partially functional": 60.0}
+SYSTEM_NAME = "System (automatic)"
 
 # Basic brute-force protection for the login form.
 MAX_LOGIN_ATTEMPTS = 5
@@ -263,10 +283,17 @@ def init_db():
         "prediction_status": "TEXT NOT NULL DEFAULT 'Not trained'",
         "calculated_by": "INTEGER REFERENCES users(id)",
         "calculated_by_name": "TEXT",
+        "last_inspected_on": "TEXT",
+        "risk_explanation": "TEXT",
     }
     for column, definition in migrations.items():
         if column not in existing_columns:
             db.execute(f"ALTER TABLE boreholes ADD COLUMN {column} {definition}")
+
+    # Removed users are kept (inactive) so past reports and calculations stay complete.
+    user_columns = {row[1] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    if "is_active" not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
 
     # Demo data. Set SEED_DEMO=0 in the environment to switch this off.
     if os.environ.get("SEED_DEMO", "1") == "1":
@@ -285,57 +312,82 @@ def init_db():
                 (full_name, username, generate_password_hash(password), role),
             )
 
-        # Sample boreholes with PLACEHOLDER risk scores. Replace these with
-        # scores produced by the machine-learning model.
+        # Sample boreholes. Their risk is calculated when an Expert clicks Calculate Risk
+        # (or updates the data). Replace these with your real boreholes.
         if db.execute("SELECT COUNT(*) FROM boreholes").fetchone()[0] == 0:
             samples = [
-                ("BH-001", "Chikanda", "Zomba", 78.0),
-                ("BH-002", "Mpunga", "Zomba", 52.5),
-                ("BH-003", "Domasi", "Zomba", 21.0),
-                ("BH-004", "Thondwe", "Zomba", 85.5),
-                ("BH-005", "Songani", "Zomba", 34.0),
-                ("BH-006", "Likangala", "Zomba", 64.0),
+                # code, village, district, village population, people using, months since inspection, condition
+                ("BH-001", "Chikanda", "Zomba", 1200, 480, 14, "Partially functional"),
+                ("BH-002", "Mpunga", "Zomba", 900, 300, 8, "Functional"),
+                ("BH-003", "Domasi", "Zomba", 600, 150, 2, "Functional"),
+                ("BH-004", "Thondwe", "Zomba", 1500, 620, 18, "Non-functional"),
+                ("BH-005", "Songani", "Zomba", 700, 200, 5, "Functional"),
+                ("BH-006", "Likangala", "Zomba", 1000, 410, 10, "Functional"),
             ]
             db.executemany(
-                "INSERT INTO boreholes (code, village, district, risk_score) "
-                "VALUES (?, ?, ?, ?)",
-                samples,
+                "INSERT INTO boreholes (code, village, district, village_population, people_using, "
+                "months_unsupervised, functionality_status, last_inspected_on) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [(*sample, date_from_months(sample[5])) for sample in samples],
             )
 
     db.commit()
 
 
 # --------------------------------------------------
-# MACHINE-LEARNING MODEL
+# RISK CALCULATION
 # --------------------------------------------------
 
 ML_FEATURES = ["village_population", "people_using", "months_unsupervised", "district"]
 
+
 def model_is_available():
     return ML_AVAILABLE and os.path.exists(MODEL_PATH)
 
-def predict_borehole_risk(db, borehole_id, expert_id=None):
-    """Run the trained ML model when an Expert requests a calculation."""
-    if not model_is_available():
-        return None
 
-    row = db.execute(
-        """SELECT village_population, people_using, months_unsupervised, district
-           FROM boreholes WHERE id = ?""",
-        (borehole_id,),
-    ).fetchone()
+def date_from_months(months):
+    """The date of the last inspection, worked out from 'months since last inspection'."""
+    return (date.today() - timedelta(days=round((months or 0) * 30.4))).isoformat()
+
+
+def months_since_inspection(row):
+    """Months without inspection. It grows automatically as time passes."""
+    last = parse_date(row["last_inspected_on"]) if row["last_inspected_on"] else None
+    if last:
+        return round(max(0, (date.today() - last).days) / 30.4, 1)
+    return float(row["months_unsupervised"] or 0)
+
+
+def formula_risk(people_using, months, condition):
+    """
+    Risk from the two main factors:
+      * users per borehole   : 250 users = 25 points, 500 or more users = 50 points
+      * months not inspected : 12 months = 50 points (counted from the last inspection)
+    A borehole already known to be broken has a minimum score.
+    Returns (score, plain-language explanation).
+    """
+    people_using = people_using or 0
+    usage_points = min(50.0, people_using / USERS_PER_BOREHOLE_LIMIT * 25.0)
+    gap_points = min(50.0, months / INSPECTION_GAP_LIMIT * 50.0)
+    score = usage_points + gap_points
+    explanation = (
+        f"{people_using:,} people use it = {usage_points:.1f} points; "
+        f"{months:.1f} months without inspection = {gap_points:.1f} points"
+    )
+    floor = CONDITION_FLOORS.get(condition, 0.0)
+    if floor > score:
+        score = floor
+        explanation += f"; reported as {condition.lower()}, so the minimum is {floor:.0f}%"
+    return round(min(100.0, score), 1), explanation
+
+
+def predict_borehole_risk(db, borehole_id, expert_id=None):
+    """Calculate and save a borehole's risk. Returns the score (or None if it does not exist)."""
+    row = db.execute("SELECT * FROM boreholes WHERE id = ?", (borehole_id,)).fetchone()
     if row is None:
         return None
 
-    model = joblib.load(MODEL_PATH)
-    features = pd.DataFrame([{name: row[name] for name in ML_FEATURES}])
-    classes = list(model.classes_)
-    if 1 not in classes:
-        raise RuntimeError("The trained model does not contain the Non-functional class.")
-    probability = float(model.predict_proba(features)[0][classes.index(1)]) * 100
-    probability = round(max(0.0, min(100.0, probability)), 1)
-
-    expert_name = None
+    expert_name = SYSTEM_NAME
     if expert_id is not None:
         expert = db.execute(
             "SELECT full_name FROM users WHERE id = ? AND role = 'Expert'",
@@ -345,13 +397,42 @@ def predict_borehole_risk(db, borehole_id, expert_id=None):
             raise PermissionError("Only a registered Expert can record a risk calculation.")
         expert_name = expert["full_name"]
 
+    months = months_since_inspection(row)
+    probability = method = explanation = None
+
+    if model_is_available():
+        try:
+            model = joblib.load(MODEL_PATH)
+            classes = list(model.classes_)
+            if 1 in classes:
+                features = pd.DataFrame([{
+                    "village_population": row["village_population"],
+                    "people_using": row["people_using"],
+                    "months_unsupervised": months,
+                    "district": row["district"],
+                }])
+                probability = round(
+                    max(0.0, min(100.0, float(model.predict_proba(features)[0][classes.index(1)]) * 100)), 1
+                )
+                method = "ML prediction"
+                explanation = (
+                    f"Trained model estimate from {row['people_using']:,} users and "
+                    f"{months:.1f} months without inspection"
+                )
+        except Exception:
+            probability = None  # fall back to the formula below
+
+    if probability is None:
+        probability, explanation = formula_risk(row["people_using"], months, row["functionality_status"])
+        method = "Formula"
+
     db.execute(
         """UPDATE boreholes
-           SET risk_score = ?, prediction_status = 'ML prediction',
-               risk_updated_at = CURRENT_TIMESTAMP,
+           SET risk_score = ?, prediction_status = ?, risk_explanation = ?,
+               months_unsupervised = ?, risk_updated_at = CURRENT_TIMESTAMP,
                calculated_by = ?, calculated_by_name = ?
            WHERE id = ?""",
-        (probability, expert_id, expert_name, borehole_id),
+        (probability, method, explanation, int(round(months)), expert_id, expert_name, borehole_id),
     )
     if expert_id is not None:
         db.execute(
@@ -362,14 +443,10 @@ def predict_borehole_risk(db, borehole_id, expert_id=None):
         )
 
     if probability > HIGH_RISK:
-        borehole = db.execute(
-            "SELECT code FROM boreholes WHERE id = ?", (borehole_id,)
-        ).fetchone()
         notify_officers(
             db,
-            f"HIGH-RISK ALERT: {borehole['code']} has an estimated "
-            f"{probability:.1f}% likelihood of being non-functional. "
-            f"Calculated by {expert_name or 'the system'}.",
+            f"HIGH-RISK ALERT: {row['code']} ({row['village']}) has a risk of "
+            f"{probability:.1f}%. {explanation}. Calculated by {expert_name}.",
             "/boreholes",
         )
     return probability
@@ -452,20 +529,25 @@ def notify(db, user_id, message, link=None):
 
 def notify_officers(db, message, link=None, exclude=None):
     for row in db.execute(
-        "SELECT id FROM users WHERE role = 'District Officer'"
+        "SELECT id FROM users WHERE role = 'District Officer' AND is_active = 1"
     ).fetchall():
         if row["id"] != exclude:
             notify(db, row["id"], message, link)
 
 
-def recalculate_risk_from_report(db, task, role, values):
-    """Reset the supervision interval; Expert explicitly recalculates afterward."""
-    if role == "Expert":
-        db.execute(
-            "UPDATE boreholes SET months_unsupervised = 0 WHERE id = ?",
-            (task["borehole_id"],),
-        )
-    return None
+def recalculate_risk_from_report(db, task, role, inspection):
+    """
+    An Expert's inspection report updates the borehole record (people using it, condition,
+    inspection date) and the risk is recalculated straight away under the Expert's name.
+    """
+    if role != "Expert" or not inspection:
+        return None
+    db.execute(
+        "UPDATE boreholes SET people_using = ?, functionality_status = ?, "
+        "months_unsupervised = 0, last_inspected_on = ? WHERE id = ?",
+        (inspection["people_using"], inspection["condition_found"], today_iso(), task["borehole_id"]),
+    )
+    return predict_borehole_risk(db, task["borehole_id"], expert_id=session["user_id"])
 
 
 def csrf_token():
@@ -475,6 +557,7 @@ def csrf_token():
 
 
 app.jinja_env.globals["csrf_token"] = csrf_token
+app.jinja_env.globals["CALCULATED"] = CALCULATED
 
 
 @app.before_request
@@ -484,6 +567,17 @@ def protect_against_csrf():
         expected = session.get("_csrf", "")
         if not sent or not expected or not secrets.compare_digest(sent, expected):
             abort(400)
+
+
+@app.before_request
+def sign_out_removed_users():
+    """A user removed by the District Officer is signed out at their next click."""
+    user_id = session.get("user_id")
+    if user_id and request.endpoint != "static":
+        row = get_db().execute("SELECT is_active FROM users WHERE id = ?", (user_id,)).fetchone()
+        if row is None or not row["is_active"]:
+            session.clear()
+            flash("Your account is no longer active. Please contact the District Officer.", "error")
 
 
 # --------------------------------------------------
@@ -692,6 +786,8 @@ BASE_STYLE = """
             <a href="{{ url_for('task_new') }}">Assign Task</a>
             <a href="{{ url_for('boreholes') }}">Boreholes</a>
             <a href="{{ url_for('manage_users') }}">Manage Users</a>
+        {% elif session.get('role') == 'Expert' %}
+            <a href="{{ url_for('boreholes') }}">Boreholes</a>
         {% endif %}
         <a href="{{ url_for('notifications') }}">Notifications
             {% if unread %}<span class="count">{{ unread }}</span>{% endif %}
@@ -909,7 +1005,7 @@ def login():
             "SELECT * FROM users WHERE username = ?", (username,)
         ).fetchone()
 
-        if user and check_password_hash(user["password_hash"], password):
+        if user and user["is_active"] and check_password_hash(user["password_hash"], password):
             FAILED_LOGINS.pop(key, None)
             session.clear()
             session.permanent = True
@@ -932,7 +1028,7 @@ def login():
             <div class="role-card"><h3>Trainee</h3>
                 <p>Carry out assigned repairs and equipment installation.</p></div>
             <div class="role-card"><h3>Expert</h3>
-                <p>Inspect boreholes and give technical recommendations.</p></div>
+                <p>Enter borehole data, inspect boreholes and calculate risk.</p></div>
             <div class="role-card"><h3>District Officer</h3>
                 <p>Assign work, review reports and manage user accounts.</p></div>
         </div>
@@ -988,6 +1084,7 @@ def task_stats(db, user_id=None):
 TASK_SELECT = """
     SELECT t.*,
            b.code AS borehole_code, b.village, b.district, b.risk_score, b.prediction_status,
+           b.people_using, b.village_population, b.functionality_status,
            a.full_name AS assignee_name, a.role AS assignee_role,
            c.full_name AS creator_name,
            CASE WHEN t.deadline < :today AND t.status != 'Completed'
@@ -1009,7 +1106,8 @@ def dashboard():
     if is_officer():
         stats = task_stats(db)
         high_risk_count = db.execute(
-            "SELECT COUNT(*) FROM boreholes WHERE prediction_status = 'ML prediction' AND risk_score >= ?", (HIGH_RISK,)
+            "SELECT COUNT(*) FROM boreholes WHERE prediction_status IN ('ML prediction', 'Formula') "
+            "AND risk_score >= ?", (HIGH_RISK,)
         ).fetchone()[0]
 
         awaiting = db.execute(
@@ -1024,7 +1122,8 @@ def dashboard():
             params,
         ).fetchall()
         risky = db.execute(
-            "SELECT * FROM boreholes WHERE prediction_status = 'ML prediction' ORDER BY risk_score DESC LIMIT 5"
+            "SELECT * FROM boreholes WHERE prediction_status IN ('ML prediction', 'Formula') "
+            "ORDER BY risk_score DESC LIMIT 5"
         ).fetchall()
 
         content = """
@@ -1050,15 +1149,18 @@ def dashboard():
 
         <div class="card"><h2>Highest-risk boreholes</h2>
             <div class="table-wrap"><table>
-                <thead><tr><th>Code</th><th>Village</th><th>District</th><th>Risk</th><th></th></tr></thead>
+                <thead><tr><th>Code</th><th>Village</th><th>District</th><th>Risk</th><th>Why</th><th></th></tr></thead>
                 <tbody>
                 {% for b in risky %}
                     <tr><td><strong>{{ b['code'] }}</strong></td><td>{{ b['village'] }}</td>
                         <td>{{ b['district'] }}</td><td>{{ b['risk_score']|risk_badge }}</td>
+                        <td class="muted">{{ b['risk_explanation'] or '' }}</td>
                         <td><a class="button small" href="{{ url_for('task_new', borehole_id=b['id']) }}">Assign task</a></td></tr>
+                {% else %}
+                    <tr><td colspan="6" class="muted">No risk has been calculated yet. Experts calculate it from the Boreholes page.</td></tr>
                 {% endfor %}
                 </tbody></table></div>
-            <p class="muted">Only boreholes with an active trained-model prediction appear here. Register real condition data and train the model from the Boreholes page.</p>
+            <p class="muted">Risk is calculated from how many people use each borehole and how long it has gone without an inspection.</p>
         </div>
         """
         return render_page(
@@ -1068,12 +1170,11 @@ def dashboard():
 
     # Experts get the risk calculator directly on their dashboard.
     expert_boreholes = []
-    ml_ready = model_is_available()
     if session["role"] == "Expert":
-        expert_boreholes = db.execute(
-            "SELECT id, code, village, district, risk_score, prediction_status, "
-            "risk_updated_at, calculated_by_name FROM boreholes ORDER BY code"
-        ).fetchall()
+        expert_boreholes = [
+            dict(r, months_now=months_since_inspection(r))
+            for r in db.execute("SELECT * FROM boreholes ORDER BY code").fetchall()
+        ]
 
     stats = task_stats(db, uid)
     active = db.execute(
@@ -1120,26 +1221,25 @@ def dashboard():
     {% if session.get('role') == 'Expert' %}
     <div class="card">
         <div class="page-head"><h2>Borehole Risk Calculation</h2>
-            <a class="button small" href="{{ url_for('boreholes') }}">Add / View Boreholes</a></div>
-        <p class="muted">Choose a borehole below and click Calculate Risk. The trained model calculates the score and records your name and the calculation date.</p>
-        {% if not ml_ready %}
-            <p class="notice">The trained model file is not available. Please ask the District Officer to check the model training status.</p>
-        {% elif not expert_boreholes %}
-            <p class="muted">No boreholes have been registered yet. Open Add / View Boreholes to register one first.</p>
-        {% endif %}
+            <a class="button small" href="{{ url_for('boreholes') }}">Add / Update Boreholes</a></div>
+        <p class="muted">You enter and update borehole data, and the risk is calculated from how many people use each borehole and how long it has gone without an inspection. Click Calculate Risk to refresh a score; your name and the date are recorded.</p>
         <div class="table-wrap"><table>
-            <thead><tr><th>Borehole</th><th>Village</th><th>District</th><th>Current risk</th><th>Last calculated</th><th>Calculated by</th><th>Action</th></tr></thead>
+            <thead><tr><th>Borehole</th><th>Village</th><th>People using</th><th>Months without inspection</th><th>Current risk</th><th>Last calculated</th><th>Calculated by</th><th>Action</th></tr></thead>
             <tbody>
             {% for b in expert_boreholes %}
                 <tr>
-                    <td><strong>{{ b['code'] }}</strong></td><td>{{ b['village'] }}</td><td>{{ b['district'] }}</td>
-                    <td>{% if b['prediction_status'] == 'ML prediction' %}{{ b['risk_score']|risk_badge }}{% else %}<span class="muted">Not calculated</span>{% endif %}</td>
-                    <td>{{ b['risk_updated_at']|fmt_dt if b['risk_updated_at'] else 'Never' }}</td>
+                    <td><strong>{{ b['code'] }}</strong><br><span class="muted">{{ b['district'] }}</span></td><td>{{ b['village'] }}</td>
+                    <td>{{ b['people_using'] }}</td><td>{{ '%.1f'|format(b['months_now']) }}</td>
+                    <td>{% if b['prediction_status'] in CALCULATED %}{{ b['risk_score']|risk_badge }}<br><small class="muted">{{ b['risk_explanation'] or '' }}</small>{% else %}<span class="muted">Not calculated</span>{% endif %}</td>
+                    <td>{{ b['risk_updated_at']|fmt_dt if b['prediction_status'] in CALCULATED else 'Never' }}</td>
                     <td>{{ b['calculated_by_name'] or '—' }}</td>
-                    <td>{% if ml_ready %}<form method="POST" action="{{ url_for('update_risk', borehole_id=b['id']) }}">{{ csrf() }}<input type="hidden" name="return_to" value="dashboard"><button type="submit">Calculate Risk</button></form>{% else %}<button type="button" disabled>Model unavailable</button>{% endif %}</td>
+                    <td><div class="actions">
+                        <form method="POST" action="{{ url_for('update_risk', borehole_id=b['id']) }}">{{ csrf() }}<input type="hidden" name="return_to" value="dashboard"><button class="small" type="submit">Calculate Risk</button></form>
+                        <a class="button small secondary" href="{{ url_for('edit_borehole', borehole_id=b['id']) }}">Update data</a>
+                    </div></td>
                 </tr>
             {% else %}
-                <tr><td colspan="7" class="muted">No boreholes registered yet.</td></tr>
+                <tr><td colspan="8" class="muted">No boreholes registered yet. Use Add / Update Boreholes to register one.</td></tr>
             {% endfor %}
             </tbody></table></div>
     </div>
@@ -1151,13 +1251,34 @@ def dashboard():
     return render_page(
         "Dashboard", content, s=stats, active=active, unread=unread,
         intro=intro, done_label=done_label,
-        expert_boreholes=expert_boreholes, ml_ready=ml_ready,
+        expert_boreholes=expert_boreholes,
     )
 
 
 # --------------------------------------------------
 # BOREHOLES (District Officer and Expert)
 # --------------------------------------------------
+
+def read_borehole_form():
+    """Read and check the borehole data form. Returns (values, error)."""
+    values = {
+        "village": form_text("village"),
+        "district": form_text("district"),
+        "population": request.form.get("village_population", type=int),
+        "people_using": request.form.get("people_using", type=int),
+        "months": request.form.get("months_unsupervised", type=int),
+        "condition": form_text("functionality_status"),
+    }
+    if (not values["village"] or not values["district"] or values["population"] is None
+            or values["people_using"] is None or values["months"] is None
+            or values["condition"] not in CONDITIONS):
+        return None, "Complete all borehole fields and select a valid condition."
+    if values["population"] < 0 or values["people_using"] < 0 or values["months"] < 0:
+        return None, "Population, users and months must be zero or greater."
+    if values["people_using"] > values["population"]:
+        return None, "People using the borehole cannot exceed the village population."
+    return values, None
+
 
 @app.route("/boreholes", methods=["GET", "POST"])
 @role_required("District Officer", "Expert")
@@ -1166,34 +1287,28 @@ def boreholes():
 
     if request.method == "POST":
         code = form_text("code").upper()
-        village = form_text("village")
-        district = form_text("district")
-        population = request.form.get("village_population", type=int)
-        people_using = request.form.get("people_using", type=int)
-        months_unsupervised = request.form.get("months_unsupervised", type=int)
-        functionality = form_text("functionality_status")
-
-        if (not code or not village or not district or population is None
-                or people_using is None or months_unsupervised is None
-                or functionality not in ("Functional", "Non-functional", "Partially functional", "Unknown")):
-            flash("Complete all borehole fields and select a valid condition.", "error")
-        elif population < 0 or people_using < 0 or people_using > population or months_unsupervised < 0:
-            flash("Population and months must be zero or greater; borehole users cannot exceed village population.", "error")
+        values, error = read_borehole_form()
+        if not code:
+            error = "Enter the borehole code."
+        if error:
+            flash(error, "error")
         else:
             try:
-                db.execute(
-                    "INSERT INTO boreholes (code, village, district, village_population, people_using, months_unsupervised, functionality_status, risk_score, prediction_status) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'Model not trained')",
-                    (code, village, district, population, people_using, months_unsupervised, functionality),
+                cursor = db.execute(
+                    "INSERT INTO boreholes (code, village, district, village_population, people_using, "
+                    "months_unsupervised, last_inspected_on, functionality_status, risk_score, prediction_status) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'Not calculated')",
+                    (code, values["village"], values["district"], values["population"],
+                     values["people_using"], values["months"], date_from_months(values["months"]),
+                     values["condition"]),
                 )
+                # The risk is calculated straight away from the data just entered.
+                expert_id = session["user_id"] if session["role"] == "Expert" else None
+                score = predict_borehole_risk(db, cursor.lastrowid, expert_id=expert_id)
                 db.commit()
-                db.commit()
-                flash(
-                    "Borehole information saved. The Expert must now select "
-                    "'Calculate Risk' beside the borehole to generate and record its risk score.",
-                    "message",
-                )
+                flash(f"Borehole {code} saved. Calculated risk: {score:.1f}%.", "message")
             except sqlite3.IntegrityError:
+                db.rollback()
                 flash("A borehole with that code already exists.", "error")
         return redirect(url_for("boreholes"))
 
@@ -1205,27 +1320,34 @@ def boreholes():
         FROM boreholes b ORDER BY b.risk_score DESC
         """
     ).fetchall()
+    rows = [dict(r, months_now=months_since_inspection(r)) for r in rows]
 
     content = """
     <div class="card"><h2>Borehole Risk Monitoring</h2>
-        <p class="muted">The Expert enters borehole information and clicks Calculate Risk. The trained ML model estimates the likelihood that the borehole is currently non-functional, saves the result under the Expert's name, and alerts District Officers when the score reaches {{ high }}%.</p>
-        {% if session.get('role') == 'District Officer' %}<form method="POST" action="{{ url_for('train_model') }}" style="margin:12px 0">{{ csrf() }}<button type="submit">Train / Retrain ML Model</button></form>{% endif %}
+        <p class="muted">Risk (0-100%) is calculated from <strong>how many people use the borehole</strong>
+        ({{ users_limit }} users is a comfortable load; 500 or more is the worst case) and
+        <strong>how many months it has gone without an inspection</strong> ({{ gap_limit }} months is the worst case).
+        Experts enter and update the data; the score is worked out automatically, grows as time passes without
+        an inspection, and District Officers are alerted when it goes above {{ high }}%.</p>
+        {% if session.get('role') == 'District Officer' %}<form method="POST" action="{{ url_for('train_model') }}" style="margin:12px 0">{{ csrf() }}<button type="submit">Train / Retrain ML Model</button>
+        <span class="muted">Optional: once 20+ real labelled boreholes exist, the trained model replaces the formula.</span></form>{% endif %}
         <div class="table-wrap"><table>
-            <thead><tr><th>Code</th><th>Village</th><th>District</th><th>Population</th><th>Users</th><th>Months unsupervised</th><th>Condition</th><th>Risk</th><th>Calculated by</th><th>Prediction</th><th>Open tasks</th>{% if session.get('role') == 'Expert' %}<th>Expert action</th>{% endif %}</tr></thead>
+            <thead><tr><th>Code</th><th>Village</th><th>District</th><th>Village population</th><th>People using</th><th>Months without inspection</th><th>Condition</th><th>Risk</th><th>Calculated by</th><th>Open tasks</th><th>Actions</th></tr></thead>
             <tbody>
             {% for b in rows %}
                 <tr><td><strong>{{ b['code'] }}</strong></td><td>{{ b['village'] }}</td>
                     <td>{{ b['district'] }}</td><td>{{ b['village_population'] }}</td><td>{{ b['people_using'] }}</td>
-                    <td>{{ b['months_unsupervised'] }}</td><td>{{ b['functionality_status'] }}</td>
-                    <td>{% if b['prediction_status'] == 'ML prediction' %}{{ b['risk_score']|risk_badge }}{% else %}<span class="muted">Not calculated</span>{% endif %}</td>
+                    <td>{{ '%.1f'|format(b['months_now']) }}</td><td>{{ b['functionality_status'] }}</td>
+                    <td>{% if b['prediction_status'] in CALCULATED %}{{ b['risk_score']|risk_badge }}<br><small class="muted">{{ b['prediction_status'] }}: {{ b['risk_explanation'] or '' }}</small>{% else %}<span class="muted">Not calculated</span>{% endif %}</td>
                     <td>{{ b['calculated_by_name'] or 'Not yet calculated' }}</td>
-                    <td>{{ b['prediction_status'] }}</td><td>{{ b['open_tasks'] }}</td>
-                    {% if session.get('role') == 'Expert' %}
-                    <td><form method="POST" action="{{ url_for('update_risk', borehole_id=b['id']) }}">{{ csrf() }}<button type="submit">Calculate Risk</button></form></td>
-                    {% endif %}
+                    <td>{{ b['open_tasks'] }}</td>
+                    <td><div class="actions">
+                        <a class="button small secondary" href="{{ url_for('edit_borehole', borehole_id=b['id']) }}">Update data</a>
+                        {% if session.get('role') == 'Expert' %}<form method="POST" action="{{ url_for('update_risk', borehole_id=b['id']) }}">{{ csrf() }}<button class="small" type="submit">Calculate Risk</button></form>{% endif %}
+                    </div></td>
                 </tr>
             {% else %}
-                <tr><td colspan="{{ 12 if session.get('role') == 'Expert' else 11 }}" class="muted">No boreholes yet.</td></tr>
+                <tr><td colspan="11" class="muted">No boreholes yet.</td></tr>
             {% endfor %}
             </tbody></table></div>
     </div>
@@ -1244,7 +1366,7 @@ def boreholes():
                     <input id="village_population" name="village_population" type="number" min="0" required></div>
                 <div><label for="people_using">People using this borehole</label>
                     <input id="people_using" name="people_using" type="number" min="0" required></div>
-                <div><label for="months_unsupervised">Months since last supervision</label>
+                <div><label for="months_unsupervised">Months since last inspection</label>
                     <input id="months_unsupervised" name="months_unsupervised" type="number" min="0" required></div>
                 <div><label for="functionality_status">Current borehole condition</label>
                     <select id="functionality_status" name="functionality_status" required>
@@ -1259,8 +1381,68 @@ def boreholes():
     </div>
     """
     return render_page(
-        "Boreholes", content, rows=rows, high=int(HIGH_RISK), medium=int(MEDIUM_RISK)
+        "Boreholes", content, rows=rows, high=int(HIGH_RISK), medium=int(MEDIUM_RISK),
+        users_limit=USERS_PER_BOREHOLE_LIMIT, gap_limit=INSPECTION_GAP_LIMIT,
     )
+
+
+@app.route("/boreholes/<int:borehole_id>/edit", methods=["GET", "POST"])
+@role_required("District Officer", "Expert")
+def edit_borehole(borehole_id):
+    """Experts (and the Officer) update a borehole's data; the risk is recalculated at once."""
+    db = get_db()
+    borehole = db.execute("SELECT * FROM boreholes WHERE id = ?", (borehole_id,)).fetchone()
+    if borehole is None:
+        abort(404)
+    current_months = months_since_inspection(borehole)
+
+    if request.method == "POST":
+        values, error = read_borehole_form()
+        if error:
+            flash(error, "error")
+            return redirect(url_for("edit_borehole", borehole_id=borehole_id))
+        # Keep the real inspection date unless the months figure was actually changed.
+        last_inspected = (borehole["last_inspected_on"]
+                          if values["months"] == int(round(current_months)) and borehole["last_inspected_on"]
+                          else date_from_months(values["months"]))
+        db.execute(
+            "UPDATE boreholes SET village = ?, district = ?, village_population = ?, people_using = ?, "
+            "months_unsupervised = ?, last_inspected_on = ?, functionality_status = ? WHERE id = ?",
+            (values["village"], values["district"], values["population"], values["people_using"],
+             values["months"], last_inspected, values["condition"], borehole_id),
+        )
+        expert_id = session["user_id"] if session["role"] == "Expert" else None
+        score = predict_borehole_risk(db, borehole_id, expert_id=expert_id)
+        db.commit()
+        flash(f"{borehole['code']} updated. Risk recalculated: {score:.1f}%.", "message")
+        return redirect(url_for("boreholes"))
+
+    content = """
+    <div class="card"><h2>Update {{ b['code'] }} - {{ b['village'] }}</h2>
+        <p class="muted">The risk is recalculated as soon as you save. Months without inspection is counted from the
+           last inspection date, so it keeps growing on its own.</p>
+        <form method="POST">{{ csrf() }}
+            <div class="form-grid">
+                <div><label for="village">Village</label>
+                    <input id="village" name="village" value="{{ b['village'] }}" required maxlength="80"></div>
+                <div><label for="district">District</label>
+                    <input id="district" name="district" value="{{ b['district'] }}" required maxlength="80"></div>
+                <div><label for="village_population">Total people in the village</label>
+                    <input id="village_population" name="village_population" type="number" min="0" value="{{ b['village_population'] }}" required></div>
+                <div><label for="people_using">People using this borehole</label>
+                    <input id="people_using" name="people_using" type="number" min="0" value="{{ b['people_using'] }}" required></div>
+                <div><label for="months_unsupervised">Months since last inspection</label>
+                    <input id="months_unsupervised" name="months_unsupervised" type="number" min="0" value="{{ months }}" required></div>
+                <div><label for="functionality_status">Current borehole condition</label>
+                    <select id="functionality_status" name="functionality_status" required>
+                        {% for c in conditions %}<option value="{{ c }}" {{ 'selected' if c == b['functionality_status'] }}>{{ 'Not yet assessed' if c == 'Unknown' else c }}</option>{% endfor %}
+                    </select></div>
+            </div>
+            <button type="submit">Save and recalculate risk</button>
+            <a class="button secondary" href="{{ url_for('boreholes') }}">Cancel</a>
+        </form></div>"""
+    return render_page("Update Borehole", content, b=borehole, months=int(round(current_months)),
+                       conditions=CONDITIONS)
 
 
 @app.route("/train-model", methods=["POST"])
@@ -1289,20 +1471,12 @@ def update_risk(borehole_id):
         score = predict_borehole_risk(
             db, borehole_id, expert_id=session["user_id"]
         )
-        if score is None:
-            db.rollback()
-            flash(
-                "Risk cannot be calculated yet. The District Officer must "
-                "first train the ML model using enough real labelled records.",
-                "error",
-            )
-        else:
-            db.commit()
-            flash(
-                f"Risk calculation completed: {score:.1f}%. "
-                "Your name and calculation time have been recorded.",
-                "message",
-            )
+        db.commit()
+        flash(
+            f"Risk calculation completed: {score:.1f}%. "
+            "Your name and calculation time have been recorded.",
+            "message",
+        )
     except (RuntimeError, PermissionError, ValueError) as exc:
         db.rollback()
         flash(str(exc), "error")
@@ -1369,7 +1543,7 @@ def task_list():
     if is_officer():
         staff = db.execute(
             "SELECT id, full_name, role FROM users "
-            "WHERE role IN ('Trainee', 'Expert') ORDER BY role, full_name"
+            "WHERE role IN ('Trainee', 'Expert') AND is_active = 1 ORDER BY role, full_name"
         ).fetchall()
 
     content = """
@@ -1435,7 +1609,7 @@ def task_new():
             "SELECT * FROM boreholes WHERE id = ?", (borehole_id,)
         ).fetchone()
         assignee = db.execute(
-            "SELECT * FROM users WHERE id = ?", (assigned_to,)
+            "SELECT * FROM users WHERE id = ? AND is_active = 1", (assigned_to,)
         ).fetchone()
 
         error = None
@@ -1488,7 +1662,7 @@ def task_new():
     ).fetchall()
     staff = db.execute(
         "SELECT id, full_name, role FROM users "
-        "WHERE role IN ('Trainee', 'Expert') ORDER BY role, full_name"
+        "WHERE role IN ('Trainee', 'Expert') AND is_active = 1 ORDER BY role, full_name"
     ).fetchall()
     selected = request.args.get("borehole_id", type=int)
 
@@ -1504,7 +1678,7 @@ def task_new():
                         <option value="">Choose a borehole</option>
                         {% for b in boreholes_list %}
                         <option value="{{ b['id'] }}" {{ 'selected' if b['id'] == selected }}>
-                            {{ b['code'] }} - {{ b['village'] }} (risk {{ '%.0f'|format(b['risk_score']) }}%)</option>
+                            {{ b['code'] }} - {{ b['village'] }}{% if b['prediction_status'] in CALCULATED %} (risk {{ '%.0f'|format(b['risk_score']) }}%){% endif %}</option>
                         {% endfor %}
                     </select></div>
                 <div><label for="task_type">Task type</label>
@@ -1626,7 +1800,7 @@ def task_detail(task_id):
             <div><dt>Priority</dt><dd>{{ task['priority']|priority_badge }}</dd></div>
             <div><dt>Deadline</dt><dd>{{ task['deadline']|fmt_date }}
                 {% if task['overdue'] %}<span class="overdue">(Overdue)</span>{% endif %}</dd></div>
-            <div><dt>Borehole risk</dt><dd>{% if task['prediction_status'] == 'ML prediction' %}{{ task['risk_score']|risk_badge }}{% else %}Not predicted — model not trained{% endif %}</dd></div>
+            <div><dt>Borehole risk</dt><dd>{% if task['prediction_status'] in CALCULATED %}{{ task['risk_score']|risk_badge }}{% else %}Not calculated yet{% endif %}</dd></div>
             <div><dt>Assigned to</dt><dd>{{ task['assignee_name'] }} ({{ task['assignee_role'] }})</dd></div>
             <div><dt>Assigned by</dt><dd>{{ task['creator_name'] }}</dd></div>
             <div><dt>Created</dt><dd>{{ task['created_at']|fmt_dt }}</dd></div>
@@ -1649,10 +1823,21 @@ def task_detail(task_id):
     {% if is_assignee and status == 'In Progress' %}
     <div class="card">
         <h2>{{ 'Submit inspection report' if role == 'Expert' else 'Submit completion report' }}</h2>
-        <p class="muted">Submitting sends your report to the District Officer for review.</p>
+        <p class="muted">Submitting sends your report to the District Officer for review.
+           {% if role == 'Expert' %}Your inspection also updates the borehole record and recalculates its risk straight away.{% endif %}</p>
         <form method="POST" action="{{ url_for('task_submit', task_id=task['id']) }}">
             {{ csrf() }}
             {% if role == 'Expert' %}
+                <div class="form-grid">
+                    <div><label for="people_using">People using this borehole now</label>
+                        <input type="number" id="people_using" name="people_using" min="0" value="{{ task['people_using'] }}" required></div>
+                    <div><label for="condition_found">Condition found</label>
+                        <select id="condition_found" name="condition_found" required>
+                            <option value="">Choose</option>
+                            {% for c in ('Functional', 'Partially functional', 'Non-functional') %}
+                            <option {{ 'selected' if c == task['functionality_status'] }}>{{ c }}</option>{% endfor %}
+                        </select></div>
+                </div>
                 <label for="findings">Inspection findings</label>
                 <textarea id="findings" name="findings" maxlength="2000" required></textarea>
                 <label for="faults">Faults identified</label>
@@ -1803,6 +1988,24 @@ def task_submit(task_id):
         )
         return redirect(url_for("task_detail", task_id=task_id))
 
+    # An Expert's inspection also records what was found at the borehole.
+    inspection = None
+    if role == "Expert":
+        people = request.form.get("people_using", type=int)
+        condition = form_text("condition_found")
+        if (people is None or people < 0
+                or condition not in ("Functional", "Partially functional", "Non-functional")):
+            flash("Enter how many people use the borehole and the condition you found.", "error")
+            return redirect(url_for("task_detail", task_id=task_id))
+        if task["village_population"] and people > task["village_population"]:
+            flash(
+                f"People using the borehole cannot exceed the village population "
+                f"({task['village_population']}). Update the village population on the Boreholes page first.",
+                "error",
+            )
+            return redirect(url_for("task_detail", task_id=task_id))
+        inspection = {"people_using": people, "condition_found": condition}
+
     if not change_status(db, task_id, "Submitted for Review", ("In Progress",)):
         flash("This task has already been updated.", "error")
         return redirect(url_for("task_detail", task_id=task_id))
@@ -1814,7 +2017,7 @@ def task_submit(task_id):
         f"VALUES (?, ?, ?, {marks})",
         (task_id, session["user_id"], report_type, *values.values()),
     )
-    updated_score = recalculate_risk_from_report(db, task, role, values)
+    updated_score = recalculate_risk_from_report(db, task, role, inspection)
     notify_officers(
         db,
         f"{session['full_name']} submitted a {report_type.lower()} for "
@@ -1822,7 +2025,10 @@ def task_submit(task_id):
         url_for("task_detail", task_id=task_id),
     )
     db.commit()
-    flash("Report submitted for review.", "message")
+    if updated_score is not None:
+        flash(f"Report submitted for review. Borehole risk recalculated: {updated_score:.1f}%.", "message")
+    else:
+        flash("Report submitted for review.", "message")
     return redirect(url_for("task_detail", task_id=task_id))
 
 
@@ -2026,7 +2232,7 @@ def manage_users():
         SELECT u.id, u.full_name, u.username, u.role, u.created_at,
                (SELECT COUNT(*) FROM tasks t WHERE t.assigned_to = u.id
                 AND t.status != 'Completed') AS open_tasks
-        FROM users u ORDER BY u.id DESC
+        FROM users u WHERE u.is_active = 1 ORDER BY u.id DESC
         """
     ).fetchall()
 
@@ -2069,7 +2275,7 @@ def manage_users():
                             <a class="button small" href="{{ url_for('edit_user', user_id=user['id']) }}">Edit</a>
                             <a class="button small secondary" href="{{ url_for('issue_password_reset', user_id=user['id']) }}">Reset password</a>
                             <form method="POST" action="{{ url_for('delete_user', user_id=user['id']) }}"
-                                  onsubmit="return confirm('Are you sure you want to delete this user?');">
+                                  onsubmit="return confirm('Remove this user? They will no longer be able to log in.');">
                                 {{ csrf() }}<button class="danger small" type="submit">Delete</button></form>
                         </div>
                     {% else %}<span class="muted">Protected account</span>{% endif %}
@@ -2087,7 +2293,9 @@ def manage_users():
 @role_required("District Officer")
 def edit_user(user_id):
     db = get_db()
-    user = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = db.execute(
+        "SELECT * FROM users WHERE id = ? AND is_active = 1", (user_id,)
+    ).fetchone()
 
     if user is None:
         flash("User not found.", "error")
@@ -2165,6 +2373,28 @@ def edit_user(user_id):
     )
 
 
+def user_has_history(db, user_id):
+    """True if the user appears in any report, task, message or risk calculation."""
+    checks = (
+        ("SELECT COUNT(*) FROM tasks WHERE assigned_to = ? OR created_by = ?", (user_id, user_id)),
+        ("SELECT COUNT(*) FROM task_reports WHERE author_id = ?", (user_id,)),
+        ("SELECT COUNT(*) FROM task_feedback WHERE sender_id = ?", (user_id,)),
+        ("SELECT COUNT(*) FROM risk_calculations WHERE expert_id = ?", (user_id,)),
+        ("SELECT COUNT(*) FROM boreholes WHERE calculated_by = ?", (user_id,)),
+    )
+    return any(db.execute(sql, params).fetchone()[0] for sql, params in checks)
+
+
+def deactivate_user(db, user_id, username):
+    """Remove a user's access but keep their past work so reports and history stay complete."""
+    db.execute(
+        "UPDATE users SET is_active = 0, username = ?, password_hash = ? WHERE id = ?",
+        (f"removed-{user_id}-{username}"[:60], generate_password_hash(secrets.token_urlsafe(32)), user_id),
+    )
+    db.execute("DELETE FROM notifications WHERE user_id = ?", (user_id,))
+    db.execute("DELETE FROM password_reset_tokens WHERE user_id = ?", (user_id,))
+
+
 @app.route("/manage-users/<int:user_id>/delete", methods=["POST"])
 @role_required("District Officer")
 def delete_user(user_id):
@@ -2174,25 +2404,30 @@ def delete_user(user_id):
 
     db = get_db()
     user = db.execute(
-        "SELECT id, role FROM users WHERE id = ?", (user_id,)
+        "SELECT id, username, role FROM users WHERE id = ? AND is_active = 1", (user_id,)
     ).fetchone()
 
     if user is None:
         flash("User not found.", "error")
     elif user["role"] == "District Officer":
         flash("District Officer accounts are protected.", "error")
-    elif db.execute(
-        "SELECT COUNT(*) FROM tasks WHERE assigned_to = ?", (user_id,)
-    ).fetchone()[0]:
-        flash(
-            "This user has task records and cannot be deleted. "
-            "Keeping them preserves the work history.",
-            "error",
-        )
     else:
-        db.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        db.commit()
-        flash("User deleted successfully.", "message")
+        try:
+            if user_has_history(db, user_id):
+                deactivate_user(db, user_id, user["username"])
+                message = ("User removed. They can no longer log in. Their past reports and "
+                           "calculations were kept so the records stay complete.")
+            else:
+                db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+                message = "User deleted successfully."
+            db.commit()
+            flash(message, "message")
+        except sqlite3.IntegrityError:
+            # Something still refers to this user: remove access instead of failing.
+            db.rollback()
+            deactivate_user(db, user_id, user["username"])
+            db.commit()
+            flash("User removed. They can no longer log in; their past records were kept.", "message")
     return redirect(url_for("manage_users"))
 
 
@@ -2204,7 +2439,9 @@ def delete_user(user_id):
 @role_required("District Officer")
 def issue_password_reset(user_id):
     db = get_db()
-    user = db.execute("SELECT id, full_name, username, role FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = db.execute(
+        "SELECT id, full_name, username, role FROM users WHERE id = ? AND is_active = 1", (user_id,)
+    ).fetchone()
     if user is None:
         abort(404)
     if user["role"] == "District Officer":
@@ -2214,7 +2451,7 @@ def issue_password_reset(user_id):
     token = None
     if request.method == "POST":
         token = secrets.token_urlsafe(32)
-        token_hash = __import__("hashlib").sha256(token.encode("utf-8")).hexdigest()
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
         expires = (datetime.utcnow() + timedelta(minutes=20)).isoformat(timespec="seconds")
         db.execute("UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL", (user_id,))
         db.execute(
@@ -2243,7 +2480,7 @@ def reset_password():
         token = request.form.get("token", "").strip()
         password = request.form.get("password", "")
         confirm = request.form.get("confirm_password", "")
-        token_hash = __import__("hashlib").sha256(token.encode("utf-8")).hexdigest()
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
         db = get_db()
         record = db.execute(
             "SELECT * FROM password_reset_tokens WHERE token_hash = ? AND used_at IS NULL",
