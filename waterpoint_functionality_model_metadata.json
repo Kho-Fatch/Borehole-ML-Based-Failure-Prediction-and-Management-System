@@ -1,0 +1,31 @@
+{
+    "model_name": "Water Point Functionality Classifier",
+    "algorithm": "Random Forest",
+    "trees": 250,
+    "random_state": 42,
+    "training_records": 669,
+    "numeric_features": [
+        "total_users_of_water_point",
+        "time_to_pump_20l",
+        "strokes_to_yield_water",
+        "electrical_conductivity_magnitude",
+        "total_dissolved_solids_ppt",
+        "ph",
+        "fluoride_ppm",
+        "turbidity_magnitude"
+    ],
+    "categorical_features": [
+        "reported_problems",
+        "pump_operational_feel",
+        "sediment_presence"
+    ],
+    "target_mapping": {
+        "0": "Functional",
+        "1": "Needs attention"
+    },
+    "excluded_status": "No longer exists or abandoned",
+    "cross_validation_folds": 5,
+    "cross_validation_accuracy_percent": 91.93,
+    "cross_validation_balanced_accuracy_percent": 91.94,
+    "prediction_scope": "Current surveyed functionality, not future breakdown"
+}
